@@ -20,7 +20,7 @@ class TransformerModel(pl.LightningModule):
         print("Loading AutoModel [{}] ...".format(model_name))
         self.model_name = model_name
         self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_name, strip_accents=False)
-        self.model = AutoModelForTokenClassification.from_pretrained(model_name, num_labels=len(bio2tag_list))
+        self.model = AutoModelForTokenClassification.from_pretrained(model_name, num_labels=len(bio2tag_list), from_flax=False)
         self.dropout = nn.Dropout(0.2)
 
         self.lr = lr
@@ -42,9 +42,31 @@ class TransformerModel(pl.LightningModule):
             print(f"*** Warning, tokenizer {tokenizer_name} has no defined CLS token: sequences will not be marked with special chars! ***")
         if self.tokenizer.sep_token_id is None:
             print(f"*** Warning, tokenizer {tokenizer_name} has no defined SEP token: sequences will not be marked with special chars! ***")
-        if self.tokenizer.pad_token_id is None:
-            print(f"*** Warning, tokenizer {tokenizer_name} has no defined PAD token: sequences will be padded with 0 by default! ***")
-
+       
+        # add pad token
+        self.validate_pad_token()
+    
+    def validate_pad_token(self):
+        if self.tokenizer.pad_token is not None:
+            return
+        if self.tokenizer.sep_token is not None:
+            print(f"\tNo PAD token detected, automatically assigning the SEP token as PAD.")
+            self.tokenizer.pad_token = self.tokenizer.sep_token
+            return
+        if self.tokenizer.eos_token is not None:
+            print(f"\tNo PAD token detected, automatically assigning the EOS token as PAD.")
+            self.tokenizer.pad_token = self.tokenizer.eos_token
+            return
+        if self.tokenizer.bos_token is not None:
+            print(f"\tNo PAD token detected, automatically assigning the BOS token as PAD.")
+            self.tokenizer.pad_token = self.tokenizer.bos_token
+            return
+        if self.tokenizer.cls_token is not None:
+            print(f"\tNo PAD token detected, automatically assigning the CLS token as PAD.")
+            self.tokenizer.pad_token = self.tokenizer.cls_token
+            return
+        raise Exception("Could not detect SEP/EOS/BOS/CLS tokens, and thus could not assign a PAD token which is required.")
+        
 
     def forward(self, input_ids, attention_mask, labels):
         output = self.model(
@@ -215,6 +237,30 @@ class MyCollator(object):
     def __init__(self, tokenizer, max_seq_len):
         self.tokenizer = tokenizer
         self.max_seq_len = max_seq_len
+        
+        self.validate_pad_token()
+        
+    def validate_pad_token(self):
+        if self.tokenizer.pad_token is not None:
+            return
+        if self.tokenizer.sep_token is not None:
+            print(f"\tNo PAD token detected, automatically assigning the SEP token as PAD.")
+            self.tokenizer.pad_token = self.tokenizer.sep_token
+            return
+        if self.tokenizer.eos_token is not None:
+            print(f"\tNo PAD token detected, automatically assigning the EOS token as PAD.")
+            self.tokenizer.pad_token = self.tokenizer.eos_token
+            return
+        if self.tokenizer.bos_token is not None:
+            print(f"\tNo PAD token detected, automatically assigning the BOS token as PAD.")
+            self.tokenizer.pad_token = self.tokenizer.bos_token
+            return
+        if self.tokenizer.cls_token is not None:
+            print(f"\tNo PAD token detected, automatically assigning the CLS token as PAD.")
+            self.tokenizer.pad_token = self.tokenizer.cls_token
+            return
+        raise Exception("Could not detect SEP/EOS/BOS/CLS tokens, and thus could not assign a PAD token which is required.")
+            
 
     def __call__(self, input_batch):
         batch_input_ids, batch_labels, batch_attention, batch_token_idx = [], [], [], []
@@ -404,7 +450,7 @@ def run_evaluation(
             # limit_val_batches=2,
             accumulate_grad_batches=accumulate_grad_batches,
             gradient_clip_val=1.0,
-            checkpoint_callback=False
+            enable_checkpointing=False
         )
         trainer.fit(model, train_dataloader, val_dataloader)
 
@@ -448,7 +494,8 @@ def run_evaluation(
         json.dump(result, f, indent=4, sort_keys=True)
 
     print("\nFinal averaged results on TEST data: ")
-    print(result)
+    from pprint import pprint
+    pprint(result)
 
 
 if __name__ == "__main__":
